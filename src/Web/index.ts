@@ -54,19 +54,21 @@ document.getElementById("convertBtn").addEventListener("click", convert);
 function convert() {
 	const startedConversion = time();
 
-	const parsed = parser.parse(`${inputArea.value}\n`);
-	if(parsed.remainingStr) {
+	let data;
+	try{
+		data = parser.beginParse(`${inputArea.value}\n`);
+	}catch(er){
 		bufferToDownload = undefined;
-		messageArea.value = (`Error, could not parse. Took ${time() - startedConversion}ms. Remaining str:\n\`\`\`\n...${parsed.remainingStr}\`\`\``);
-		outputArea.value = "Error!";
-		throw new Error("Str remaining");
+		messageArea.value = (`Error, could not parse. Took ${time() - startedConversion}ms. Error: `+er.message);
+		outputArea.value = "Error! "+er.message;
+		throw er;
 	}
 
 	const finishedParsing = time();
 
 	let shortcut;
 	try{
-		shortcut = parsed.data.asShortcut();
+		shortcut = data.asShortcut();
 	}catch(er) {
 		messageArea.value = (`Error, could not convert. Took ${time() - startedConversion}ms. ${er.message}`);
 		outputArea.value = "Error!";

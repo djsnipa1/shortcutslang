@@ -547,9 +547,11 @@ export class WFAction {
 	internalName: string
 	shortName: string
 	name: string
-	constructor(data: any, id: string) {
+
+	constructor(data: any, id: string) { //
 		this._data = data;
 		this.id = id;
+
 		this.isComplete = true;
 		this._parameters = [];
 		if(this._data.Parameters) {
@@ -665,6 +667,8 @@ ${JSON.stringify(this._data, null, "\t")}
 		return docs;
 	}
 	build(cc: ConvertingContext, controlFlowData?: {uuid: string, number: number, wfaction: any}, ...params: Array<AsAble>) {
+		cc.pushCurrentAction(this);
+
 		let parami = 0;
 		let actionAbove = cc.lastVariableAction;
 		// TODO actionAbove = cc.lastVariableAction
@@ -723,6 +727,8 @@ ${JSON.stringify(this._data, null, "\t")}
 		}
 		// TODO if(actionAbove) cc.add(getVariableAction(actionAbove))
 		cc.add(action);
+
+		cc.popCurrentAction(this);
 		return action;
 	}
 }

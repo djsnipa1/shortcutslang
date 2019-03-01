@@ -3,6 +3,10 @@ let began: Date;
 
 export type ProductionResolveable = Production | {getProd: () => Production}
 
+// function debuglog(..._args: any[]){
+	// do nothing
+// }
+
 export class Performance {
 	static startMonitoring() {
 		totalSteps = 0;
@@ -15,21 +19,109 @@ export class Performance {
 	}
 }
 
+export class Position{
+	line: number
+	character: number
+	constructor(line:number,character:number){
+		this.line = line;
+		this.character = character;
+	}
+	copy(){
+		return new Position(this.line, this.character);
+	}
+	toString(){
+		return `line ${this.line} character ${this.character}`;
+	}
+}
+
+let _debugIndent = ""
+
+export class ParsingString { // a data object containing a string
+	position: Position
+	str: string
+	data: any
+	constructor(str: string, position: Position){
+		this.str = str;
+		this.position = position;
+		this.data = undefined;
+	}
+	take(take: string){
+		this.str = this.str.substr(take.length); // replaces first instance
+		if(take.indexOf("\n") > -1){
+			let split = take.split("\n");
+			this.position.line += split.length;
+			this.position.character = 0;
+			take = split[split.length - 1];
+		};
+		this.position.character += take.length;
+		return;
+	}
+	copy(){
+		return new ParsingString(this.str, this.position.copy());
+	}
+	applyChanges(changedParse: ParsingString){
+		this.position = changedParse.position
+		this.str = changedParse.str
+	}
+	error(val: string): Error{
+		return new Error("Error on "+this.position.toString()+": "+val);
+	}
+}
+
 export class Production {
-	cb: (input: any) => any // todo cb: (input: any) => Parse
-	constructor(cb = (a: any) => a) {
+	cb: (a: any, fromPos: Position, toPos: Position) => any // todo cb: (input: any) => Parse
+	name: string
+	constructor(cb = (a: any, _fromPos: Position, _toPos: Position) => a) {
 		this.cb = cb;
 	}
-	scb(cb: (input: any) => any) {
+	scb(cb: (a: any, fromPos: Position, toPos: Position) => any) {
 		this.cb = cb;
 		return this;
 	}
 	getProd() {
 		return this;
 	}
-	parse(_string: string): {data?: any, remainingStr?: string, error?: string, success: boolean} {
+	parse(ps: ParsingString): (ParsingString | Error) {
 		totalSteps++;
-		return {success: false};
+		let startingPos = ps.position.copy();
+
+		// debuglog(_debugIndent + "Parsing:: "+this.name + " ("+this.constructor.name+")");
+		// _debugIndent += "| ";
+
+		let nps = this._parse(ps);
+
+		// _debugIndent = _debugIndent.substr(0, _debugIndent.length - 2);
+		if(nps instanceof Error) {
+			// debuglog(_debugIndent + "- Failed:: "+nps.message);
+			return nps;
+		}
+
+		// debuglog(_debugIndent + "+ Passed:: "+nps.position.toString());
+
+		// debuglog(_debugIndent + "Setting Data");
+		nps.data = this.cb(nps.data, startingPos, ps.position.copy());
+		// debuglog(_debugIndent + "Data Set");
+		return nps;
+	}
+	_parse(ps: ParsingString): (ParsingString | Error){
+		return ps.error("No parser was defined");
+	}
+	beginParse(str: string){
+		let ps = new ParsingString(str, new Position(0,1));
+		let nps = this.parse(ps.copy());
+		if(nps instanceof Error){
+			throw nps;
+		}
+		if(nps.str.length > 0){
+			throw new Error("Could not parse everything, ended at "+nps.position.toString());
+		}
+		return nps.data;
+	}
+	toString(){
+		return "UndefinedProduction";
+	}
+	nameOrTostring(){
+		return this.name || this.toString();
 	}
 }
 
@@ -39,18 +131,22 @@ export class OrderedProduction extends Production {
 		super();
 		this.requirements = requirements;
 	}
-	parse(string: string) {
-		super.parse(string);
+	_parse(ps: ParsingString) {
 		const resdata: Array<any> = [];
 		const success = this.requirements.every(requirement => {
-			const {data, remainingStr, success} = requirement.getProd().parse(string);
-			if(!success) {return false;}
-			string = remainingStr;
-			resdata.push(data);
+			const nps = requirement.getProd().parse(ps.copy());
+			if(nps instanceof Error){return false;}
+			ps.applyChanges(nps);
+			resdata.push(nps.data);
 			return true;
 		});
-		if(!success) {return {success: false};}
-		return {data: this.cb(resdata), remainingStr: string, success: true};
+		if(!success) { return ps.error("Not all items matched."); }
+
+		ps.data = resdata;
+		return ps;
+	}
+	toString() {
+		return `${this.requirements.map(option => option.getProd().nameOrTostring()).join(" ")}`;
 	}
 }
 export class OrProduction extends Production {
@@ -59,42 +155,44 @@ export class OrProduction extends Production {
 		super();
 		this.options = options;
 	}
-	parse(string: string) {
-		super.parse(string);
+	_parse(ps: ParsingString) {
 		let resdata;
 		const success = this.options.some(option => { // find the first option that parses... might cause problems if things try to parse too deep only to realise the code is wrong... may want to have some number of depth or something idk
-			const {data, remainingStr, success} = option.getProd().parse(string);
-			if(!success) {return false;}
-			string = remainingStr;
-			resdata = data;
+			const nps = option.getProd().parse(ps.copy());
+			if(nps instanceof Error) {return false;}
+			ps.applyChanges(nps);
+			resdata = nps.data;
 			return true;
 		});
-		if(!success) {
-			return {success: false};
-		}
-		return {data: this.cb(resdata), remainingStr: string, success: true};
+		if(!success) { return ps.error("None of the items matched."); }
+		ps.data = resdata;
+		return ps;
+	}
+	toString() {
+		return `( ${this.options.map(option => option.getProd().nameOrTostring()).join(" | ")} )`;
 	}
 }
 export class NotProduction extends Production {
-	options: Array<ProductionResolveable>
+	options: Array<ProductionResolveable> // why does notproduction have an array just do not(or(a,b,c))
 	constructor(...options: Array<ProductionResolveable>) {
 		super();
 		this.options = options;
 	}
-	parse(string: string) {
-		super.parse(string);
+	_parse(ps: ParsingString) { // notproduction doesn't match anything is the point to not(a,b,c,d...) regex/./? that'd work but idk
 		let resdata;
 		const success = this.options.every(option => { // ensure every option fails
-			const {data, remainingStr, success} = option.getProd().parse(string);
-			if(success) {return false;}  // if success, fail.
-			string = remainingStr;
-			resdata = data;
+			const nps = option.getProd().parse(ps.copy());
+			if(nps instanceof Error) {return false;}  // if success, fail.
+			ps.applyChanges(nps);
+			resdata = nps.data;
 			return true;
 		});
-		if(!success) {
-			return {success: false};
-		}
-		return {data: this.cb(resdata), remainingStr: string, success: true};
+		if(!success) { return ps.error("One of the items matched."); }
+		ps.data = resdata;
+		return ps;
+	}
+	toString() {
+		return `!( ${this.options.map(option => option.getProd().nameOrTostring()).join(" | ")} )`;
 	}
 }
 
@@ -104,21 +202,20 @@ export class RegexProduction extends Production {
 		super();
 		this.regex = regex;
 	}
-	parse(string: string) {
-		super.parse(string);
-		const match = string.match(this.regex);
-		if(match &&  string.startsWith(match[0])) {
-			string = string.replace(match[0], ""); // replace does the first instance on a string. PERFORMANCE: substr could probably be used instead.
-			// console.log("MATCHED", match[0], "CB IS", this.cb);
-			return {data: this.cb(match), remainingStr: string, success: true};
+	_parse(ps: ParsingString) {
+		const match = ps.str.match(this.regex);
+		if(match &&  ps.str.startsWith(match[0])) {
+			ps.take(match[0]);
+			ps.data = match;
+			return ps;
 		}
 		if(match) {
 			console.warn("WARN: regex ", this.regex, " does not start matching at beginning of line");
 		}
-		return {success: false};
+		return ps.error("Regex didn't match.");
 	}
 	toString() {
-		return `RegexProduction ${this.regex}`;
+		return `${this.regex.toString()}`;
 	}
 }
 
@@ -128,16 +225,16 @@ export class StringProduction extends Production {
 		super();
 		this.string = string;
 	}
-	parse(string: string) {
-		super.parse(string);
-		if(string.startsWith(this.string)) {
-			string = string.replace(this.string, ""); // replace does the first instance on a string
-			return {data: this.cb(this.string), remainingStr: string, success: true};
+	_parse(ps: ParsingString) {
+		if(ps.str.startsWith(this.string)) {
+			ps.take(this.string);
+			ps.data = this.string;
+			return ps;
 		}
-		return {success: false, error: `Expected \`${this.string}\` but found \`${string.substr(0, this.string.length)}\``};
+		return ps.error(`Expected \`${this.string}\` but found \`${ps.str.substr(0, this.string.length)}\``);
 	}
 	toString() {
-		return `StringProduction ${JSON.stringify(this.string)}`;
+		return `${JSON.stringify(this.string)}`;
 	}
 }
 
@@ -152,24 +249,24 @@ export class ManyProduction extends Production {
 		this.end = end;
 	}
 
-	parse(string: string) {
-		super.parse(string);
+	_parse(ps: ParsingString) {
 		const results = [];
 		let succeeding = true;
-		const errors = [];
 		while(succeeding) {
 			if(results.length > this.end) {succeeding = false; continue;}
-			const {data, remainingStr, success, error} = this.prod.getProd().parse(string);
-			if(!success) {succeeding = false; errors.push(error); continue;}
-			const changed = string.length - remainingStr.length;
+			const nps = this.prod.getProd().parse(ps.copy());
+			if(nps instanceof Error) {succeeding = false; continue;}
+			const changed = ps.str.length - nps.str.length;
 			if(changed === 0) {succeeding = false; continue;} // if it succeeds but matches nothing, count it as a failure (to avoid loops)
-			string = remainingStr;
-			results.push(data);
+			ps.applyChanges(nps);
+			results.push(nps.data);
 		}
-		if(results.length < this.start) {return {success: false, error: `Expected from ${this.start} to ${this.end} of something but didn't get that. ${errors}`};}
-		return {data: this.cb(results), remainingStr: string, success: true};
+		if(results.length < this.start) {return ps.error(`Expected from ${this.start} to ${this.end} but didn't get that`);}
+
+		ps.data = results;
+		return ps;
 	}
 	toString() {
-		return `ManyProduction ?{${this.start}..${this.end}}`;
+		return `{ ${this.start}..${this.end} }( ${this.prod.getProd().nameOrTostring()} )`;
 	}
 }

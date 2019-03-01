@@ -5,6 +5,9 @@ Comment
 | pfg
 | pfg
 
+SetWifi fals
+
+
 Text "hello there, how are you doing?"
 Number 5
 Calculate "+" 2
