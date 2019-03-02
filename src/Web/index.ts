@@ -1,10 +1,12 @@
 import * as bplistc from "bplist-creator";
-import * as CodeMirror from "codemirror";
 
 import parser from "../ShortcutsParser";
 import {PositionedError} from "../ParserData";
+import * as ace from "ace-builds";
+import "ace-builds/webpack-resolver";
 
-const inputArea = <HTMLTextAreaElement>document.getElementById("inputArea");
+import "./shortcutslang";
+
 const messageArea = <HTMLTextAreaElement>document.getElementById("messageArea");
 const outputArea = <HTMLTextAreaElement>document.getElementById("outputArea");
 
@@ -18,25 +20,19 @@ let bufferToDownload: Buffer;
 
 let timeout: NodeJS.Timeout;
 
-const cm = CodeMirror.fromTextArea(inputArea, {
-	lineNumbers: true,
-	mode: "text/plain",
-	indentWithTabs: true
-});
-cm.on("change", () => {
+const editor = ace.edit("editor");
+editor.setTheme("ace/theme/monaki");
+editor.session.setMode("ace/mode/shortcutslang");
+
+function change() {
 	messageArea.value = "";
 	outputArea.value = "";
 	if(timeout) {
 		clearTimeout(timeout);
 	}
 	timeout = setTimeout(convert, 200);
-});
+}
 
-inputArea.addEventListener("input", () => {
-});
-
-// @ts-ignore
-global.cm = cm;
 
 function downloadBlob(data: string | Buffer | ArrayBufferView | ArrayBuffer | Blob, fileName: string, mimeType: string) {
 	const blob = new Blob([data], {
@@ -64,26 +60,18 @@ const time = () => (new Date).getTime();
 
 document.getElementById("convertBtn").addEventListener("click", convert);
 
-let textMarks: CodeMirror.TextMarker[] = [];
-// @ts-ignore
-global.textMarks = textMarks;
 
 function convert() {
 	messageArea.value = "Loading...";
 	outputArea.value = "Loading...";
 	
-	textMarks.forEach(mark => mark.clear()); textMarks = [];
 	
 	const startedConversion = time();
 
-	const parsed = parser.parse(`${cm.getValue()}\n`, [1, 1]);
+	const parsed = parser.parse(`${"hi"}\n`, [1, 1]);
 	if(parsed.remainingStr) {
 		bufferToDownload = undefined;
-		textMarks.push(cm.getDoc().markText({line: parsed.pos[0] - 1, ch: parsed.pos[1] - 1}, {line: parsed.pos[0] + 100, ch: 0}, {
-			className: "error",
-			inclusiveLeft: false,
-			inclusiveRight: false
-		}));
+		// {line: parsed.pos[0] - 1, ch: parsed.pos[1] - 1}, {line: parsed.pos[0] + 100, ch: 0}
 		messageArea.value = (`Error, could not parse. Took ${time() - startedConversion}ms. Ended at line ${parsed.pos[0]}, character ${parsed.pos[1]}`);
 		outputArea.value = "Error!";
 		throw new Error("Str remaining");
@@ -96,13 +84,8 @@ function convert() {
 		shortcut = parsed.data.asShortcut();
 	}catch(er) {
 		if(er instanceof PositionedError) {
-			textMarks.push(cm.getDoc().markText({line: er.start[0] - 1, ch: er.start[1] - 1}, {line: er.end[0] - 1, ch: er.end[1] - 1}, {
-				className: "error",
-				inclusiveLeft: false,
-				inclusiveRight: false,
-				// @ts-ignore
-				attributes: {title: er.message}
-			}));
+			// {line: er.start[0] - 1, ch: er.start[1] - 1}, {line: er.end[0] - 1, ch: er.end[1] - 1}
+			// {title: er.message}
 		}
 		messageArea.value = (`Error, could not convert. Took ${time() - startedConversion}ms. ${er.message}`);
 		outputArea.value = "Error!";

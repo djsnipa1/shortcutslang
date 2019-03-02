@@ -7,13 +7,13 @@
 		"docs": "tsc && node ./built/GenDocs && webpack"
 	},
 	"dependencies": {
-		"@types/codemirror": "^0.0.72",
 		"@types/node": "^11.9.5",
 		"@types/uuid": "^3.4.4",
+		"ace-builds": "^1.4.3",
 		"bplist-creator": "^0.0.7",
 		"bplist-parser": "^0.1.1",
-		"codemirror": "^5.44.0",
 		"deepmerge": "^3.2.0",
+		"file-loader": "^3.0.1",
 		"plist": "^3.0.1",
 		"uuid": "^3.3.2"
 	},
